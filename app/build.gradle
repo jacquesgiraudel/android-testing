@@ -32,17 +32,77 @@ android {
     }
 
     // Remove mockRelease as it's not needed.
-    android.variantFilter { variant ->
+    // Commented for jacoco task
+    /*android.variantFilter { variant ->
         if(variant.buildType.name.equals('release')
                 && variant.getFlavors().get(0).name.equals('mock')) {
             variant.setIgnore(true);
         }
-    }
+    }*/
 
     // Always show the result of every unit test, even if it passes.
     testOptions.unitTests.all {
         testLogging {
             events 'passed', 'skipped', 'failed', 'standardOut', 'standardError'
+        }
+    }
+}
+
+apply plugin: 'jacoco'
+
+jacoco {
+    toolVersion = "0.7.6.201602180812"
+    reportsDir = file("$buildDir/customJacocoReportDir")
+}
+
+project.afterEvaluate {
+    // Grab all build types and product flavors
+    def buildTypes = android.buildTypes.collect { type ->
+        type.name
+    }
+    def productFlavors = android.productFlavors.collect { flavor ->
+        flavor.name
+    }
+    // When no product flavors defined, use empty
+    if (!productFlavors) productFlavors.add('')
+    productFlavors.each { productFlavorName ->
+        buildTypes.each { buildTypeName ->
+            def sourceName, sourcePath
+            if (!productFlavorName) {
+                sourceName = sourcePath = "${buildTypeName}"
+            } else {
+                sourceName = "${productFlavorName}${buildTypeName.capitalize()}"
+                sourcePath = "${productFlavorName}/${buildTypeName}"
+            }
+            def testTaskName = "test${sourceName.capitalize()}UnitTest"
+            // Create coverage task of form 'testFlavorTypeCoverage' depending on 'testFlavorTypeUnitTest'
+            task "${testTaskName}Coverage" (type:JacocoReport, dependsOn: "$testTaskName") {
+                group = "Reporting"
+                description = "Generate Jacoco coverage reports on the ${sourceName.capitalize()} build."
+                classDirectories = fileTree(
+                        dir: "${project.buildDir}/intermediates/classes/${sourcePath}",
+                        excludes: [
+                                '**/R.class',
+                                '**/R$*.class',
+                                '**/*$ViewInjector*.*',
+                                '**/*$ViewBinder*.*',
+                                '**/BuildConfig.*',
+                                '**/Manifest*.*'
+                        ]
+                )
+                def coverageSourceDirs = [
+                        "src/main/java",
+                        "src/$productFlavorName/java",
+                        "src/$buildTypeName/java"
+                ]
+                additionalSourceDirs = files(coverageSourceDirs)
+                sourceDirectories = files(coverageSourceDirs)
+                executionData = files("${project.buildDir}/jacoco/${testTaskName}.exec")
+                reports {
+                    xml.enabled = true
+                    html.enabled = true
+                }
+            }
         }
     }
 }
